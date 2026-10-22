@@ -1,0 +1,101 @@
+name: Deploy
+
+# Builds the static site and deploys it to Azure Static Web Apps on every push to main.
+# Needs the repository secret AZURE_STATIC_WEB_APPS_API_TOKEN (the Static Web App's deployment token).
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-getzaplie
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://getzapl.ie
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The portal at /portal/ is the Teams tabs app from knowall-ai/zaplie-bot, built for
+      # that path. It needs the app registration's client id and tenant (public values, but
+      # kept as secrets so each environment sets its own) and the portal backend's URL.
+      # Without them the marketing page deploys on its own and /portal/ is absent.
+      - name: Check out the portal source
+        if: env.REACT_APP_AAD_CLIENT_ID != ''
+        env:
+          REACT_APP_AAD_CLIENT_ID: ${{ secrets.PORTAL_AAD_CLIENT_ID }}
+        uses: actions/checkout@v4
+        with:
+          repository: knowall-ai/zaplie-bot
+          ref: main
+          path: zaplie-bot
+
+      # Fail rather than ship a broken portal: every required setting must be present, and the
+      # zaplie-bot source must already support serving the portal from /portal/
+      # (tabs/src/services/appLocation.ts, from knowall-ai/zaplie-bot PR 488).
+      - name: Check the portal can be built for /portal/
+        if: env.REACT_APP_AAD_CLIENT_ID != ''
+        env:
+          REACT_APP_AAD_CLIENT_ID: ${{ secrets.PORTAL_AAD_CLIENT_ID }}
+          REACT_APP_TENANT_ID: ${{ secrets.PORTAL_AAD_TENANT_ID }}
+          REACT_APP_API_BASE_URL: ${{ secrets.PORTAL_API_BASE_URL }}
+        run: |
+          if [ -z "$REACT_APP_TENANT_ID" ] || [ -z "$REACT_APP_API_BASE_URL" ]; then
+            echo '::error::PORTAL_AAD_CLIENT_ID is set, but PORTAL_AAD_TENANT_ID or PORTAL_API_BASE_URL is empty'; exit 1
+          fi
+          if [ ! -f zaplie-bot/tabs/src/services/appLocation.ts ]; then
+            echo '::error::zaplie-bot main cannot serve the portal from /portal/ yet (needs knowall-ai/zaplie-bot PR 488)'; exit 1
+          fi
+
+      - name: Build the portal for /portal/
+        if: env.REACT_APP_AAD_CLIENT_ID != ''
+        working-directory: zaplie-bot/tabs
+        env:
+          CI: false
+          PUBLIC_URL: /portal
+          REACT_APP_AAD_CLIENT_ID: ${{ secrets.PORTAL_AAD_CLIENT_ID }}
+          REACT_APP_TENANT_ID: ${{ secrets.PORTAL_AAD_TENANT_ID }}
+          REACT_APP_API_BASE_URL: ${{ secrets.PORTAL_API_BASE_URL }}
+          REACT_APP_LNBITS_STORE_ID: ${{ secrets.PORTAL_LNBITS_STORE_ID }}
+          REACT_APP_LNBITS_STORE_OWNER_EMAIL: ${{ secrets.PORTAL_LNBITS_STORE_OWNER_EMAIL }}
+          REACT_APP_LNBITS_POINTS_LABEL: ${{ secrets.PORTAL_LNBITS_POINTS_LABEL }}
+        run: |
+          npm ci
+          npm run build
+          # A browser bundle must never be wired to LNbits admin credentials: refuse one whose code
+          # names those settings. (This catches the settings being wired in, not a leaked value.)
+          if grep -RlE 'REACT_APP_LNBITS_(ADMINKEY|PASSWORD)|LNBITS_ADMINKEY|LNBITS_PASSWORD' build; then
+            echo '::error::The portal bundle references LNbits admin credentials'; exit 1
+          fi
+
+      - name: Test
+        run: node --test website/test/build.test.mjs
+
+      - name: Build
+        env:
+          PORTAL_DIST: ${{ github.workspace }}/zaplie-bot/tabs/build
+        run: node website/build.mjs
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: website/dist
+          skip_app_build: true
+          skip_api_build: true

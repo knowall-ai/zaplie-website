@@ -1,0 +1,21 @@
+{
+  "navigationFallback": {
+    "rewrite": "/portal/index.html",
+    "exclude": [
+      "/portal/static/*",
+      "/portal/*.{json,ico,png,css,txt,map}",
+      "/img/*",
+      "/fonts/*",
+      "/*.{css,svg,png,ico,txt,json,xml,webmanifest}"
+    ]
+  },
+  "mimeTypes": {
+    ".mp4": "video/mp4",
+    ".webp": "image/webp",
+    ".woff2": "font/woff2"
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  }
+}
