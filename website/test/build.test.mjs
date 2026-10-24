@@ -61,6 +61,33 @@ test('staticwebapp.config.json falls back to the portal for /portal/* and still 
   assert.equal(swa.globalHeaders['X-Content-Type-Options'], 'nosniff');
 });
 
+test('every response gets the security headers, and the marketing page a CSP with no inline script or style', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  const h = swa.globalHeaders;
+  assert.match(h['Strict-Transport-Security'], /max-age=63072000; includeSubDomains/);
+  assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
+  assert.equal(h['X-Frame-Options'], 'DENY');
+  assert.match(h['Permissions-Policy'], /camera=\(\)/);
+  const csp = h['Content-Security-Policy'];
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval|script-src/, 'the page has no JavaScript at all');
+});
+
+test('the portal gets its own CSP: no inline script, framed by itself only (MSAL silent sign-in), camera for the QR scanner', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  for (const route of ['/portal', '/portal/*']) {
+    const r = swa.routes.find((x) => x.route === route);
+    assert.ok(r, route);
+    const csp = r.headers['Content-Security-Policy'];
+    const script = csp.split(';').find((d) => d.trim().startsWith('script-src'));
+    assert.doesNotMatch(script, /unsafe-inline|'unsafe-eval'/);
+    assert.match(csp, /frame-ancestors 'self'/);
+    assert.equal(r.headers['X-Frame-Options'], 'SAMEORIGIN');
+    assert.match(r.headers['Permissions-Policy'], /camera=\(self\)/);
+  }
+});
+
 test('without a portal build, /portal/ says so instead of 404ing', (t) => {
   const { dir, dist, output } = buildCopy();
   t.after(() => rmSync(dir, { recursive: true, force: true }));

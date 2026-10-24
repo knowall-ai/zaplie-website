@@ -13,7 +13,7 @@ The Zaplie website: one static page in plain HTML and CSS, no framework, no Java
 | `src/fonts/` | Mulish and Playfair Display (latin, WOFF2) from `@fontsource`, under the SIL Open Font Licence (licences alongside). |
 | `src/img/` | Zaplie's images, the app mockups, the explainer video and the social preview (see below). |
 | `src/CNAME` | `getzapl.ie`, for GitHub Pages. Harmless elsewhere. |
-| `src/staticwebapp.config.json` | Azure Static Web Apps settings: the right content type for the video, fonts and WebP images, two security headers, and the fallback that serves the portal for `/portal/*` (see below). |
+| `src/staticwebapp.config.json` | Azure Static Web Apps settings: the right content type for the video, fonts and WebP images, the security headers (HSTS, `nosniff`, referrer and permissions policies, no framing) with a strict Content Security Policy for the page, a separate CSP for `/portal/*` (see below), and the fallback that serves the portal for `/portal/*` (see below). |
 | `src/portal-unavailable.html` | What `/portal/` shows when the site is built without a portal (see below). Not published on its own. |
 | `test/build.test.mjs` | `node --test website/test/build.test.mjs`: builds a copy of the site and checks the Login button, the placeholders, the Static Web Apps settings and the portal copy. No dependencies. |
 
@@ -47,7 +47,9 @@ What the portal needs, and why:
 
 The deploy workflow builds the portal when the repository secret `PORTAL_AAD_CLIENT_ID` is set (with `PORTAL_AAD_TENANT_ID`, `PORTAL_API_BASE_URL`, and the optional `PORTAL_LNBITS_STORE_ID`, `PORTAL_LNBITS_STORE_OWNER_EMAIL`, `PORTAL_LNBITS_POINTS_LABEL`), and deploys the marketing page alone until then.
 
-`staticwebapp.config.json` has a `navigationFallback` to `/portal/index.html`, so a refresh on `/portal/feed` or a sign-in landing on `/portal/auth-end` loads the app; the portal's `static/` bundle, the site's images, fonts and other files are excluded, so a missing file is still a 404. Static Web Apps has one fallback for the whole site, so an unknown path on the marketing page (there is only one page) also lands in the portal, which sends it to its login.
+`staticwebapp.config.json` has a `navigationFallback` to `/portal/index.html`, so a refresh on `/portal/feed` or a sign-in landing on `/portal/auth-end` loads the app; the portal's `static/` bundle, the site's images, fonts and other files are excluded, so a missing file is still a 404. Static Web Apps has one fallback for the whole site, so an unknown path on the marketing page (there is only one page) also gets the portal's page, but under the marketing page's CSP, which allows no scripts, so it shows a blank page rather than the portal's login.
+
+**Content Security Policy.** The marketing page has no JavaScript, so its CSP (`globalHeaders`) is `default-src 'none'` with only same-origin images, styles, fonts and media. The portal gets its own CSP from the `/portal` and `/portal/*` routes, listing exactly what the live build loads: jQuery and Bootstrap from their CDNs, Google Fonts (Inter), the Fluent UI icon font (`res-1.cdn.office.net`), the backend (`zaplie-prod-webapp.azurewebsites.net`), Entra sign-in (`login.microsoftonline.com`, also framed for MSAL's silent sign-in, so the portal allows framing by itself) and the QR scanner's WebAssembly from jsDelivr (`'wasm-unsafe-eval'`, plus `camera=(self)`). Its `style-src` keeps `'unsafe-inline'`, as Fluent UI injects `<style>` elements and a static host cannot give them a nonce; scripts have no `'unsafe-inline'`. **If `PORTAL_API_BASE_URL` or the portal's third parties change, update that CSP**, or the portal breaks.
 
 ## Images
 
