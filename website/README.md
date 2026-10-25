@@ -9,13 +9,14 @@ The Zaplie website: one static page in plain HTML and CSS, no framework, no Java
 | `site.config.json` | **The one place for links and addresses**: the site URL, the sales and support email addresses, the repository and design links, and the copyright year. |
 | `build.mjs` | A tiny build with no dependencies: copies `src/` to `dist/` and replaces each `{{placeholder}}` with the value from `site.config.json`. It fails if a placeholder is unknown. |
 | `src/index.html` | The page. |
+| `src/404.html`, `src/404.css` | The page for any unknown address, sent with HTTP 404: Zaplie's hero image with his visor showing a glitching "404" (see below). |
 | `src/styles.css` | The styles: Zaplie's tokens (Bitcoin orange `#F7931A` on near-black `#0B0A09`), Playfair Display headings and Mulish body text. |
 | `src/fonts/` | Mulish and Playfair Display (latin, WOFF2) from `@fontsource`, under the SIL Open Font Licence (licences alongside). |
 | `src/img/` | Zaplie's images, the app mockups, the explainer video and the social preview (see below). |
 | `src/CNAME` | `getzapl.ie`, for GitHub Pages. Harmless elsewhere. |
-| `src/staticwebapp.config.json` | Azure Static Web Apps settings: the right content type for the video, fonts and WebP images, the security headers (HSTS, `nosniff`, referrer and permissions policies, framing limits) with the portal's Content Security Policy for every response and a strict one for the marketing page (see below), and the fallback that serves the portal for `/portal/*` (see below). |
+| `src/staticwebapp.config.json` | Azure Static Web Apps settings: the right content type for the video, fonts and WebP images, the security headers (HSTS, `nosniff`, referrer and permissions policies, framing limits) with a strict Content Security Policy for the whole site and the portal's own for `/portal/*`, the routes that serve the portal for `/portal/*`, and the 404 page for everything else (see below). |
 | `src/portal-unavailable.html` | What `/portal/` shows when the site is built without a portal (see below). Not published on its own. |
-| `test/build.test.mjs` | `node --test website/test/build.test.mjs`: builds a copy of the site and checks the Login button, the placeholders, the Static Web Apps settings and the portal copy. No dependencies. |
+| `test/build.test.mjs` | `node --test website/test/build.test.mjs`: builds a copy of the site and checks the Login button, the placeholders, the 404 page, the Static Web Apps routing and headers, and the portal copy. No dependencies. |
 
 ## The Zaplie portal at /portal/
 
@@ -47,9 +48,22 @@ What the portal needs, and why:
 
 The deploy workflow builds the portal when the repository secret `PORTAL_AAD_CLIENT_ID` is set (with `PORTAL_AAD_TENANT_ID`, `PORTAL_API_BASE_URL`, and the optional `PORTAL_LNBITS_STORE_ID`, `PORTAL_LNBITS_STORE_OWNER_EMAIL`, `PORTAL_LNBITS_POINTS_LABEL`), and deploys the marketing page alone until then.
 
-`staticwebapp.config.json` has a `navigationFallback` to `/portal/index.html`, so a refresh on `/portal/feed` or a sign-in landing on `/portal/auth-end` loads the app; the portal's `static/` bundle, the site's images, fonts and other files are excluded, so a missing file is still a 404. Static Web Apps has one fallback for the whole site, so an unknown path on the marketing page (there is only one page) also gets the portal's page, with the portal's CSP. The portal's router only knows paths under `/portal/`, so such a page loads the app but shows nothing. A real 404 there would be a separate change.
+**Routing.** `staticwebapp.config.json` has no `navigationFallback` (Static Web Apps allows one for the whole site, and it answered every unknown address, `/typo` included, with the portal and HTTP 200). Instead, its `routes`, tried in order with the first match winning, are:
 
-**Content Security Policy.** Static Web Apps doesn't apply `routes` (or their headers) to a response served by `navigationFallback`, and every portal deep link (`/portal/feed`, MSAL's `/portal/auth-end`) is one. So the portal's CSP, framing and permissions policy are the `globalHeaders`, and the marketing page's strict ones are a route on `/` and `/index.html`, whose headers replace the global ones of the same name. The marketing page has no JavaScript, so its CSP is `default-src 'none'` with only same-origin images, styles, fonts and media, with `X-Frame-Options: DENY` and no camera. Don't move portal headers into a `/portal/*` route: deep links would lose them. The portal's CSP listing exactly what the live build loads: jQuery and Bootstrap from their CDNs, Google Fonts (Inter), the Fluent UI icon font (`res-1.cdn.office.net`), the backend (`zaplie-prod-webapp.azurewebsites.net`), Entra sign-in (`login.microsoftonline.com`, also framed for MSAL's silent sign-in, so the portal allows framing by itself) and the QR scanner's WebAssembly from jsDelivr (`'wasm-unsafe-eval'`, plus `camera=(self)`). Its `style-src` keeps `'unsafe-inline'`, as Fluent UI injects `<style>` elements and a static host cannot give them a nonce; scripts have no `'unsafe-inline'`. **If `PORTAL_API_BASE_URL` or the portal's third parties change, update that CSP**, or the portal breaks.
+1. `/portal/static/*` and `/portal/*.{js,css,map,json,txt,ico,png,svg,webmanifest}`: the portal's files, served as themselves, so a missing one is a 404 rather than the app.
+2. `/portal` (MSAL's redirect URI) and `/portal/*` (every client-side route: `/portal/feed`, `/portal/wallet`, `/portal/auth-end` …): rewritten to `/portal/index.html`, with HTTP 200. `/portal/*` doesn't match `/portal`, hence both.
+
+Anything else that isn't a file is a 404, and `responseOverrides` answers it with `/404.html`, keeping the 404 status. Keep the file rules above the `/portal/*` catch-all: below it, the portal's scripts would be rewritten to its HTML.
+
+**Content Security Policy.** The strict policy is in `globalHeaders`, so it covers the marketing page, the 404 page and every other file: the site has no JavaScript, so it's `default-src 'none'` with only same-origin images, styles, fonts and media, with `X-Frame-Options: DENY` and no camera. The portal's routes (all four, with identical headers; a test checks) replace it with the portal's policy. Route headers do apply here: these are ordinary route matches, not `navigationFallback` responses, which skip route rules. `404.html` repeats the strict policy in a `<meta>` tag (without `frame-ancestors`, which only works as a header), in case a 404 response ever arrives without the global headers, as it does from the local emulator.
+
+The portal's CSP lists exactly what the live build loads: jQuery and Bootstrap from their CDNs, Google Fonts (Inter), the Fluent UI icon font (`res-1.cdn.office.net`), the backend (`zaplie-prod-webapp.azurewebsites.net`), Entra sign-in (`login.microsoftonline.com`, also framed for MSAL's silent sign-in, so the portal allows framing by itself) and the QR scanner's WebAssembly from jsDelivr (`'wasm-unsafe-eval'`, plus `camera=(self)`). Its `style-src` keeps `'unsafe-inline'`, as Fluent UI injects `<style>` elements and a static host cannot give them a nonce; scripts have no `'unsafe-inline'`. **If `PORTAL_API_BASE_URL` or the portal's third parties change, update that CSP in all four portal routes**, or the portal breaks.
+
+## The 404 page
+
+`src/404.html` is served for any unknown address, at any depth, so every URL in it is root-relative (`/styles.css`, `/img/...`). It has no canonical link and is `noindex`. Zaplie's hero image fills the right; his visor shows a seven-segment "404" (inline SVG) instead of his eyes, glowing in time with a glow over the orb in his hand, with scanlines and a brief glitch every few seconds. There is no JavaScript and no inline style, as the strict CSP allows neither: everything is in `src/404.css`, and the motion stops under `prefers-reduced-motion`.
+
+The visor and orb are positioned in % of a box that always has the image's 3:2 shape (`.lost-art`), measured on the 1920 × 1280 `zaplie-hero.webp`: the visor glass is x 1052 to 1565, y 444 to 660. If the hero image changes, measure again. On narrow screens the box is 150% of the column's width, shifted left, so Zaplie's head is big enough to read; the overlay moves with it.
 
 ## Images
 
@@ -77,6 +91,13 @@ python3 -m http.server 8080 --directory website/dist
 ```
 
 Any static file server works. Rebuild after each change to `src/` or `site.config.json`.
+
+A plain file server doesn't apply `staticwebapp.config.json`, so it won't show the 404 page, the portal's deep links or the headers. The Static Web Apps emulator does (it applies routes, `responseOverrides` and headers, though it sends no headers with a 404 response, unlike Azure):
+
+```bash
+npx @azure/static-web-apps-cli start website/dist --port 4381
+curl -sI http://localhost:4381/typo    # 404, with the 404 page
+```
 
 ## Deploy
 
