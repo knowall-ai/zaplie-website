@@ -61,6 +61,30 @@ test('staticwebapp.config.json falls back to the portal for /portal/* and still 
   assert.equal(swa.globalHeaders['X-Content-Type-Options'], 'nosniff');
 });
 
+test('with FRONTDOOR_ID the built config only accepts our Front Door, and the ID stays out of src/', (t) => {
+  const id = '00000000-1111-2222-3333-444444444444';
+  const { dir, dist } = buildCopy({ FRONTDOOR_ID: id });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const swa = JSON.parse(readFileSync(join(dist, 'staticwebapp.config.json'), 'utf8'));
+  assert.deepEqual(swa.forwardingGateway, {
+    requiredHeaders: { 'X-Azure-FDID': id },
+    allowedForwardedHosts: ['getzapl.ie', 'www.getzapl.ie'],
+  });
+  const source = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  assert.equal(source.forwardingGateway, undefined, 'the Front Door ID is injected at build time, never committed');
+});
+
+test('without FRONTDOOR_ID the site builds unlocked', (t) => {
+  const { dir, dist } = buildCopy({ FRONTDOOR_ID: '' });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const swa = JSON.parse(readFileSync(join(dist, 'staticwebapp.config.json'), 'utf8'));
+  assert.equal(swa.forwardingGateway, undefined);
+});
+
+test('a FRONTDOOR_ID that is not a GUID fails the build rather than locking the site out', () => {
+  assert.throws(() => buildCopy({ FRONTDOOR_ID: 'not-a-guid' }));
+});
+
 test('without a portal build, /portal/ says so instead of 404ing', (t) => {
   const { dir, dist, output } = buildCopy();
   t.after(() => rmSync(dir, { recursive: true, force: true }));

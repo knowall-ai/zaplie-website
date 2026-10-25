@@ -89,6 +89,9 @@ jobs:
       - name: Build
         env:
           PORTAL_DIST: ${{ github.workspace }}/zaplie-bot/tabs/build
+          # Azure Front Door profile ID (knowall-frontdoor): locks the site to Front Door. Kept as a
+          # secret because Static Web Apps can't also restrict by IP, so the ID is the lock.
+          FRONTDOOR_ID: ${{ secrets.FRONTDOOR_ID }}
         run: node website/build.mjs
 
       - name: Deploy to Azure Static Web Apps

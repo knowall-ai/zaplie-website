@@ -88,4 +88,27 @@ if (existsSync(portalIndex)) {
   console.warn(`Portal not included: no build at ${portal} (set PORTAL_DIST, or build zaplie-bot/tabs with PUBLIC_URL=/portal). /portal/ says so.`);
 }
 
+// getzapl.ie is served through Azure Front Door (WAF, rate limit). FRONTDOOR_ID is that Front Door
+// profile's ID: when set, the Static Web App only answers requests that carry it in X-Azure-FDID and
+// come for one of our hostnames, so the *.azurestaticapps.net address can't be used to bypass the WAF.
+// Static Web Apps has no IP allow-list for Front Door, so the ID is what keeps the lock shut: it comes
+// from a deploy secret and never lives in this public repository. Needs the Standard plan.
+const frontDoorId = (process.env.FRONTDOOR_ID ?? '').trim();
+if (frontDoorId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(frontDoorId)) {
+    console.error('FRONTDOOR_ID is not a Front Door ID (a GUID); refusing to lock the site to it.');
+    process.exit(1);
+  }
+  const swaConfig = join(dist, 'staticwebapp.config.json');
+  const swa = JSON.parse(readFileSync(swaConfig, 'utf8'));
+  swa.forwardingGateway = {
+    requiredHeaders: { 'X-Azure-FDID': frontDoorId },
+    allowedForwardedHosts: [new URL(config.siteUrl).hostname, `www.${new URL(config.siteUrl).hostname}`],
+  };
+  writeFileSync(swaConfig, `${JSON.stringify(swa, null, 2)}\n`);
+  console.log('Locked to Front Door: requests without our X-Azure-FDID are refused');
+} else {
+  console.warn('FRONTDOOR_ID not set: the site also answers on its *.azurestaticapps.net address, bypassing Front Door.');
+}
+
 console.log(`Built ${dist}`);
