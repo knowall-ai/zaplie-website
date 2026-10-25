@@ -58,7 +58,69 @@ test('staticwebapp.config.json falls back to the portal for /portal/* and still 
   assert.ok(swa.navigationFallback.exclude.includes('/portal/static/*'), 'the portal bundle is served as files');
   assert.equal(swa.mimeTypes['.mp4'], 'video/mp4');
   assert.equal(swa.mimeTypes['.woff2'], 'font/woff2');
-  assert.equal(swa.globalHeaders['X-Content-Type-Options'], 'nosniff');
+  });
+
+// Resolves the headers Static Web Apps sends for a path, following its documented rules:
+// globalHeaders on every response; a matching route's headers override same-named ones, but
+// route rules are not applied to a request answered by navigationFallback (a deep link such as
+// /portal/feed). `files` is the set of paths that exist in dist/.
+const glob = (pattern) => new RegExp(`^${pattern.replace(/[.+^$()|[\]\\]/g, '\\$&').replace(/\{([^}]*)\}/g, (_, alts) => `(${alts.split(',').join('|')})`).replace(/\*/g, '.*')}$`);
+const resolveHeaders = (swa, path, files) => {
+  const file = path.endsWith('/') ? `${path}index.html` : path;
+  const excluded = swa.navigationFallback.exclude.some((p) => glob(p).test(path));
+  if (!files.has(file) && excluded) return { status: 404 };
+  const fallback = !files.has(file);
+  const route = fallback ? undefined : swa.routes.find((r) => r.route === path || glob(r.route).test(path) || (r.route === '/index.html' && path === '/'));
+  return { status: 200, served: fallback ? swa.navigationFallback.rewrite : file, headers: { ...swa.globalHeaders, ...(route?.headers ?? {}) } };
+};
+
+const SITE_FILES = new Set(['/index.html', '/styles.css', '/favicon.svg', '/portal/index.html', '/portal/static/js/main.js']);
+
+test('every response gets the security headers', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  const h = swa.globalHeaders;
+  assert.match(h['Strict-Transport-Security'], /max-age=63072000; includeSubDomains/);
+  assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
+  assert.equal(h['X-Content-Type-Options'], 'nosniff');
+});
+
+test('the marketing page (/ and /index.html) gets a CSP with no script at all, no framing and no camera', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  for (const path of ['/', '/index.html']) {
+    const { served, headers: h } = resolveHeaders(swa, path, SITE_FILES);
+    assert.equal(served, '/index.html', path);
+    const csp = h['Content-Security-Policy'];
+    assert.match(csp, /default-src 'none'/, path);
+    assert.match(csp, /frame-ancestors 'none'/, path);
+    assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval|script-src/, `${path}: the page has no JavaScript at all`);
+    assert.equal(h['X-Frame-Options'], 'DENY', path);
+    assert.match(h['Permissions-Policy'], /camera=\(\)/, path);
+    assert.equal(h['Strict-Transport-Security'], swa.globalHeaders['Strict-Transport-Security'], `${path} keeps the global headers`);
+  }
+});
+
+test('portal deep links, served by navigationFallback, get the portal CSP: no inline script, framed by itself only (MSAL), camera for the QR scanner', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  // /portal/auth-end is where MSAL's redirect lands; /typo shows unknown paths fall back too.
+  for (const path of ['/portal/', '/portal/feed', '/portal/wallet', '/portal/auth-end', '/portal/static/js/main.js', '/typo']) {
+    const { status, headers: h } = resolveHeaders(swa, path, SITE_FILES);
+    assert.equal(status, 200, path);
+    const csp = h['Content-Security-Policy'];
+    const script = csp.split(';').find((d) => d.trim().startsWith('script-src'));
+    assert.ok(script, `${path} has a script-src`);
+    assert.doesNotMatch(script, /unsafe-inline|'unsafe-eval'/, path);
+    assert.match(csp, /frame-ancestors 'self'/, path);
+    assert.match(csp, /https:\/\/login\.microsoftonline\.com/, path);
+    assert.equal(h['X-Frame-Options'], 'SAMEORIGIN', path);
+    assert.match(h['Permissions-Policy'], /camera=\(self\)/, path);
+  }
+  assert.equal(resolveHeaders(swa, '/portal/feed', SITE_FILES).served, '/portal/index.html');
+  assert.equal(resolveHeaders(swa, '/portal/static/js/missing.js', SITE_FILES).status, 404, 'a missing bundle file is a 404, not the app');
+});
+
+test('no portal path is matched by a route, as routes are skipped for fallback responses in production', () => {
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  for (const r of swa.routes) assert.doesNotMatch(r.route, /^\/portal/, `${r.route}: put portal headers in globalHeaders`);
 });
 
 test('without a portal build, /portal/ says so instead of 404ing', (t) => {

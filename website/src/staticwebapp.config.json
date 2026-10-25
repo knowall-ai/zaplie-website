@@ -1,4 +1,22 @@
 {
+  "routes": [
+    {
+      "route": "/",
+      "headers": {
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; media-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests",
+        "X-Frame-Options": "DENY",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+      }
+    },
+    {
+      "route": "/index.html",
+      "headers": {
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; media-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests",
+        "X-Frame-Options": "DENY",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+      }
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/portal/index.html",
     "exclude": [
@@ -15,7 +33,11 @@
     ".woff2": "font/woff2"
   },
   "globalHeaders": {
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=()",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://ajax.googleapis.com https://maxcdn.bootstrapcdn.com; style-src 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://res-1.cdn.office.net https://maxcdn.bootstrapcdn.com; img-src 'self' data: blob: https:; connect-src 'self' https://zaplie-prod-webapp.azurewebsites.net https://login.microsoftonline.com https://res.cdn.office.net https://fastly.jsdelivr.net; frame-src 'self' https://login.microsoftonline.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://login.microsoftonline.com; frame-ancestors 'self'; upgrade-insecure-requests"
   }
 }
