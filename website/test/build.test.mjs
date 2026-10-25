@@ -61,6 +61,22 @@ test('staticwebapp.config.json falls back to the portal for /portal/* and still 
   assert.equal(swa.globalHeaders['X-Content-Type-Options'], 'nosniff');
 });
 
+test('security.txt (RFC 9116) is published at /.well-known/ as UTF-8 plain text, and expires within a year', (t) => {
+  const { dir, dist } = buildCopy();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const text = readFileSync(join(dist, '.well-known', 'security.txt'), 'utf8');
+  assert.match(text, /^Contact: mailto:support@knowall\.ai$/m, 'the support address is filled in');
+  assert.match(text, /^Canonical: https:\/\/getzapl\.ie\/\.well-known\/security\.txt$/m);
+  assert.match(text, /^Policy: https:\/\//m);
+  assert.doesNotMatch(text, /\{\{\s*\w+\s*\}\}/);
+  const expires = Date.parse(text.match(/^Expires: (.+)$/m)[1]);
+  assert.ok(expires > Date.now(), 'security.txt has expired: set a new Expires');
+  assert.ok(expires - Date.now() <= 366 * 24 * 3600 * 1000, 'RFC 9116: Expires should be less than a year ahead');
+  const swa = JSON.parse(readFileSync(join(website, 'src', 'staticwebapp.config.json'), 'utf8'));
+  assert.equal(swa.mimeTypes['.txt'], 'text/plain; charset=utf-8');
+  assert.ok(swa.navigationFallback.exclude.includes('/.well-known/*'), 'a missing /.well-known/ file is a 404, not the portal');
+});
+
 test('without a portal build, /portal/ says so instead of 404ing', (t) => {
   const { dir, dist, output } = buildCopy();
   t.after(() => rmSync(dir, { recursive: true, force: true }));

@@ -15,6 +15,7 @@ The Zaplie website: one static page in plain HTML and CSS, no framework, no Java
 | `src/CNAME` | `getzapl.ie`, for GitHub Pages. Harmless elsewhere. |
 | `src/staticwebapp.config.json` | Azure Static Web Apps settings: the right content type for the video, fonts and WebP images, two security headers, and the fallback that serves the portal for `/portal/*` (see below). |
 | `src/portal-unavailable.html` | What `/portal/` shows when the site is built without a portal (see below). Not published on its own. |
+| `src/.well-known/security.txt` | The security contact ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116)), served as `text/plain; charset=utf-8`. Its contact address comes from `site.config.json`. **Renew `Expires` before 2027-10-25** (no more than a year ahead): the tests fail once it has passed. |
 | `test/build.test.mjs` | `node --test website/test/build.test.mjs`: builds a copy of the site and checks the Login button, the placeholders, the Static Web Apps settings and the portal copy. No dependencies. |
 
 ## The Zaplie portal at /portal/
